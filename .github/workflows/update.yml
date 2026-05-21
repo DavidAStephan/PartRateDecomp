@@ -51,18 +51,21 @@ jobs:
       - name: Install R dependencies
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
+          # cmdstanr lives on the Stan r-universe, not CRAN, so install it via
+          # the GitHub-remote form. Everything else resolves from CRAN/RSPM.
           extra-packages: |
-            cmdstanr
-            posterior
-            dplyr
-            tidyr
-            tibble
-            readr
-            readxl
-            lubridate
-            httr
-            ggplot2
-            patchwork
+            stan-dev/cmdstanr
+            any::posterior
+            any::dplyr
+            any::tidyr
+            any::tibble
+            any::readr
+            any::readxl
+            any::lubridate
+            any::httr
+            any::ggplot2
+            any::patchwork
+            any::testthat
           dependencies: '"hard"'
 
       - name: Cache CmdStan

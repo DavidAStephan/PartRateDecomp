@@ -11,7 +11,6 @@ Encoding: UTF-8
 Depends:
     R (>= 4.2.0)
 Imports:
-    cmdstanr (>= 0.7.0),
     posterior,
     dplyr,
     tidyr,
@@ -23,4 +22,7 @@ Imports:
     ggplot2,
     patchwork
 Suggests:
-    testthat (>= 3.0.0)
+    testthat (>= 3.0.0),
+    cmdstanr (>= 0.7.0)
+Remotes:
+    stan-dev/cmdstanr
