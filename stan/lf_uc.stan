@@ -18,12 +18,25 @@
 //   cycle[t]    = phi1 * cycle[t-1] + phi2 * cyclelag[t-1] + e4[t]
 //   cyclelag[t] = cycle[t-1]
 //
-// Innovations (e1, e2, e3, e4) are jointly Normal with diagonal covariance
-// except cov(e1, e4) = sigma1 * sigma4 * rho. Variances and the rho correlation
-// follow a regime switch at t = break_idx (defaults to 1983Q4): observations
-// with t <= break_idx use the "pre" parameters, the rest use "post".
-
-// (Kalman filter is inlined below for speed; no functions block.)
+// Differences from the EViews replica:
+//
+// 1. The AR(2) cycle is reparameterised via partial autocorrelations
+//    (Barndorff-Nielsen-Schou / Jones 1987) so the cycle is guaranteed
+//    stationary. The original EViews ML estimate sits at phi1+phi2~1 on
+//    the extended sample, which makes the cycle a near-random-walk and
+//    causes it to absorb the persistent post-2000 drift in Australian
+//    output and participation. Hard stationarity forces that drift back
+//    into the random-walk trends, where it belongs.
+//
+// 2. Cycle innovations follow a Student-t via the standard
+//    scale-mixture-of-normals representation: e4[t] | lambda[t] ~ N(0,
+//    sigma4^2 * lambda[t]) with lambda[t] ~ inv_gamma(nu/2, nu/2). This
+//    makes the model robust to one-off shocks (COVID-19 in particular).
+//    The correlation cov(e1, e4) scales as sigma1 sigma4 rho sqrt(lambda).
+//
+// Variances and the rho correlation follow a regime switch at t =
+// break_idx (1983Q4 default); observations with t <= break_idx use the
+// "pre" parameters, the rest use "post".
 
 data {
   int<lower=1> T;                     // number of quarterly observations
@@ -34,7 +47,6 @@ data {
   vector[5] m0;                       // prior mean of initial state
   cov_matrix[5] P0;                   // prior cov  of initial state
 
-  // Optional informative prior centres for hyperparameters (use 0 for diffuse)
   real prior_delta_mean;
   real<lower=0> prior_delta_sd;
 }
@@ -44,28 +56,37 @@ transformed data {
 }
 
 parameters {
-  real delta;                         // drift in trend output
-  real<lower=-2, upper=2> phi1;       // AR(2) coeffs on cycle
-  real<lower=-1, upper=1> phi2;
-  real kappa1;                        // Okun-type loadings
+  real delta;
+  // Stationary AR(2) via partial autocorrelations on (-1, 1).
+  real<lower=-1, upper=1> pacf1;
+  real<lower=-1, upper=1> pacf2;
+
+  // Sign constraints break the (cycle <-> -cycle) identification ambiguity.
+  // Okun's law: a positive output cycle lowers unemployment, so kappa1 <= 0.
+  // Participation is mildly procyclical in Australia, so theta1 >= 0.
+  // kappa2 and theta2 are free in sign (lag terms can go either way).
+  real<upper=0> kappa1;
   real kappa2;
-  real theta1;                        // participation loadings on cycle
+  real<lower=0> theta1;
   real theta2;
 
   // [1] = pre-break (t <= break_idx), [2] = post-break
   array[2] vector<lower=0>[4] sigma;
   array[2] real<lower=-0.99, upper=0.99> rho;
+
+  // Cycle Student-t -> scale-mixture-of-normals
+  real<lower=2> nu;                   // degrees of freedom
+  vector<lower=0>[T] lambda;          // per-period scale factor
 }
 
 transformed parameters {
-  // Stationarity of the AR(2) for the cycle: roots outside the unit circle
-  // require phi1 + phi2 < 1, phi2 - phi1 < 1, |phi2| < 1.
-  // We don't enforce this hard (the prior will pull) -- but you could.
+  // Levinson-Durbin: AR(2) coefficients from partial autocorrelations.
+  // For any pacf1, pacf2 in (-1, 1) the resulting AR(2) is stationary.
+  real phi1 = pacf1 * (1 - pacf2);
+  real phi2 = pacf2;
 
-  // Build state-space matrices for the two regimes.
   matrix[5, 5] T_mat;
   matrix[3, 5] Z;
-  array[2] matrix[5, 5] Q;
   vector[5] c_vec;
 
   T_mat = rep_matrix(0, 5, 5);
@@ -83,43 +104,37 @@ transformed parameters {
 
   c_vec = rep_vector(0, 5);
   c_vec[1] = delta;
-
-  for (r in 1:2) {
-    Q[r] = rep_matrix(0, 5, 5);
-    Q[r][1, 1] = square(sigma[r][1]);
-    Q[r][2, 2] = square(sigma[r][2]);
-    Q[r][3, 3] = square(sigma[r][3]);
-    Q[r][4, 4] = square(sigma[r][4]);
-    real cov14 = sigma[r][1] * sigma[r][4] * rho[r];
-    Q[r][1, 4] = cov14;
-    Q[r][4, 1] = cov14;
-  }
 }
 
 model {
   // ----------------- Priors -----------------
-  // Drift: average quarterly log-pc-GDP growth ~ 0.5% (i.e. ~2% annual)
   delta ~ normal(prior_delta_mean, prior_delta_sd);
 
-  // AR(2) cycle: weakly favours persistence, second lag small/negative
-  phi1 ~ normal(1.3, 0.5);
-  phi2 ~ normal(-0.4, 0.5);
+  // Stationarity-respecting cycle priors centred on moderate persistence.
+  // pacf1 ~ N(0.7, 0.25) implies phi1 ~ 0.6-0.8; pacf2 ~ N(-0.1, 0.3) keeps
+  // the second lag small and slightly negative on average.
+  pacf1 ~ normal(0.7, 0.25);
+  pacf2 ~ normal(-0.1, 0.3);
 
-  // Okun / participation loadings: weakly informative around zero
-  kappa1 ~ normal(0, 1);
+  // Half-normal priors on the sign-constrained loadings.
+  kappa1 ~ normal(0, 1);   // truncated to (-inf, 0]
   kappa2 ~ normal(0, 1);
-  theta1 ~ normal(0, 1);
+  theta1 ~ normal(0, 1);   // truncated to [0, +inf)
   theta2 ~ normal(0, 1);
 
-  // Innovation scales: half-Student-t -- robust, weakly informative
   for (r in 1:2) {
     sigma[r] ~ student_t(4, 0, 1);
     rho[r] ~ normal(0, 0.5);
   }
 
+  // Robust cycle: scale mixture giving Student-t with df = nu. Tight prior
+  // (gamma(16, 0.8): mean 20, sd 5) keeps the model close to Gaussian for
+  // typical quarters so the cycle innovation scale is pinned down by data;
+  // genuine outliers still pull lambda[t] large without collapsing nu.
+  nu ~ gamma(16, 0.8);
+  lambda ~ inv_gamma(nu / 2, nu / 2); // E[lambda]=1 once nu>2
+
   // ----------------- Kalman filter likelihood -----------------
-  // Inlined for speed: Cholesky of forecast covariance avoids the explicit
-  // matrix solves used by the textbook recursion.
   vector[5] m = m0;
   matrix[5, 5] P = P0;
   matrix[5, 3] Zt = Z';
@@ -127,24 +142,33 @@ model {
   for (t in 1:T) {
     int r = (t <= break_idx) ? 1 : 2;
 
-    // Predict
+    // Time-varying Q: cycle innovation variance scaled by lambda[t]; the
+    // (1,4) cross-term scales by sqrt(lambda[t]) so the joint (e1, e4) is
+    // a valid (scale-mixed) bivariate normal.
+    matrix[5, 5] Q_t = rep_matrix(0, 5, 5);
+    real sl = sqrt(lambda[t]);
+    Q_t[1, 1] = square(sigma[r][1]);
+    Q_t[2, 2] = square(sigma[r][2]);
+    Q_t[3, 3] = square(sigma[r][3]);
+    Q_t[4, 4] = square(sigma[r][4]) * lambda[t];
+    real cov14 = sigma[r][1] * sigma[r][4] * rho[r] * sl;
+    Q_t[1, 4] = cov14;
+    Q_t[4, 1] = cov14;
+
     vector[5] m_pred = T_mat * m + c_vec;
-    matrix[5, 5] P_pred = quad_form_sym(P, T_mat') + Q[r];
+    matrix[5, 5] P_pred = quad_form_sym(P, T_mat') + Q_t;
     P_pred = 0.5 * (P_pred + P_pred');
 
-    // Forecast and innovation
     vector[3] y_t = [y[t], u[t], p[t]]';
     vector[3] v = y_t - Z * m_pred;
     matrix[3, 3] F = quad_form_sym(P_pred, Zt) + H;
     F = 0.5 * (F + F');
     matrix[3, 3] L = cholesky_decompose(F);
 
-    // Log marginal likelihood contribution
     target += -0.5 * (3 * log(2 * pi())
                       + 2 * sum(log(diagonal(L)))
                       + dot_self(mdivide_left_tri_low(L, v)));
 
-    // Update -- K = P_pred * Z' * F^{-1}; using the Cholesky factor of F.
     matrix[3, 5] ZP = Z * P_pred;
     matrix[5, 3] K = mdivide_left_spd(F, ZP)';
     m = m_pred + K * v;
@@ -154,7 +178,6 @@ model {
 }
 
 generated quantities {
-  // Exposed outputs only: smoothed state means and standard errors.
   vector[T] ystar_sm;
   vector[T] unrstar_sm;
   vector[T] prtstar_sm;
@@ -168,8 +191,6 @@ generated quantities {
   vector[T] prt_cycle_se;
 
   {
-    // All filter/smoother working memory stays local so it does not bloat the
-    // posterior draws output.
     array[T] vector[5] m_filt;
     array[T] matrix[5, 5] P_filt;
     array[T] vector[5] m_pred_arr;
@@ -181,11 +202,21 @@ generated quantities {
     matrix[5, 5] P = P0;
     matrix[5, 3] Zt = Z';
 
-    // Forward filter
     for (t in 1:T) {
       int r = (t <= break_idx) ? 1 : 2;
+
+      matrix[5, 5] Q_t = rep_matrix(0, 5, 5);
+      real sl = sqrt(lambda[t]);
+      Q_t[1, 1] = square(sigma[r][1]);
+      Q_t[2, 2] = square(sigma[r][2]);
+      Q_t[3, 3] = square(sigma[r][3]);
+      Q_t[4, 4] = square(sigma[r][4]) * lambda[t];
+      real cov14 = sigma[r][1] * sigma[r][4] * rho[r] * sl;
+      Q_t[1, 4] = cov14;
+      Q_t[4, 1] = cov14;
+
       vector[5] m_pred = T_mat * m + c_vec;
-      matrix[5, 5] P_pred = quad_form_sym(P, T_mat') + Q[r];
+      matrix[5, 5] P_pred = quad_form_sym(P, T_mat') + Q_t;
       P_pred = 0.5 * (P_pred + P_pred');
       m_pred_arr[t] = m_pred;
       P_pred_arr[t] = P_pred;
@@ -194,8 +225,8 @@ generated quantities {
       vector[3] v = y_t - Z * m_pred;
       matrix[3, 3] F = quad_form_sym(P_pred, Zt) + H;
       F = 0.5 * (F + F');
-      matrix[5, 3] PZt = P_pred * Zt;
-      matrix[5, 3] K = PZt / F;
+      matrix[3, 5] ZP = Z * P_pred;
+      matrix[5, 3] K = mdivide_left_spd(F, ZP)';
       m = m_pred + K * v;
       P = P_pred - K * F * K';
       P = 0.5 * (P + P');
@@ -203,7 +234,6 @@ generated quantities {
       P_filt[t] = P;
     }
 
-    // Backward (RTS) smoother
     m_smooth_arr[T] = m_filt[T];
     P_smooth_arr[T] = P_filt[T];
     for (k in 1:(T - 1)) {

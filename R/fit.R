@@ -31,7 +31,6 @@ prepare_stan_data <- function(dataset) {
   y_hp <- .hp_filter(est$lrgdppc)
   u_hp <- .hp_filter(est$unr)
   p_hp <- .hp_filter(est$prt)
-  cycle_ini <- est$lrgdppc - y_hp
 
   m0 <- c(
     y_hp[2],   # ystar_0
@@ -68,6 +67,19 @@ fit_model <- function(stan_inputs,
                       seed = 20260521,
                       parallel_chains = max(1, parallel::detectCores() - 1)) {
   mod <- cmdstanr::cmdstan_model(stan_file)
+  # Initialise away from the cycle's sign-flipped mode and away from the
+  # nu->2 boundary. Chains then converge on a single mode.
+  init_list <- replicate(chains, list(
+    delta = 0.3,
+    pacf1 = 0.85,
+    pacf2 = -0.3,
+    kappa1 = -0.5,
+    kappa2 = -0.2,
+    theta1 = 0.4,
+    theta2 = -0.1,
+    nu = 15
+  ), simplify = FALSE)
+
   fit <- mod$sample(
     data = stan_inputs$stan_data,
     seed = seed,
@@ -76,8 +88,9 @@ fit_model <- function(stan_inputs,
     iter_warmup = iter_warmup,
     iter_sampling = iter_sampling,
     refresh = 200,
-    adapt_delta = 0.95,
-    max_treedepth = 12
+    adapt_delta = 0.98,
+    max_treedepth = 12,
+    init = init_list
   )
   list(fit = fit, dates = stan_inputs$dates, est = stan_inputs$est)
 }

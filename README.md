@@ -48,7 +48,32 @@ pre- and post-break periods.
 Compared with the original EViews fit (ML), the Stan implementation
 adds weakly informative priors and recovers the full posterior, so
 estimates ship with credible intervals rather than asymptotic standard
-errors.
+errors. It also makes three changes that materially affect the
+decomposition on the extended sample:
+
+1. **Hard stationarity on the cycle.** The AR(2) cycle is
+   reparameterised via partial autocorrelations
+   (Barndorff-Nielsen-Schou / Jones 1987), so the cycle is guaranteed
+   stationary. On the extended sample the unconstrained EViews ML
+   estimate sits at `phi1 + phi2 ~ 1`, which makes the cycle a
+   near-random-walk and causes it to absorb the persistent post-2000
+   drift in Australian output and participation. Forcing stationarity
+   pushes that drift back into the random-walk trends where it
+   belongs.
+2. **Sign constraints break the cycle's sign-flip identification
+   ambiguity.** `kappa1 <= 0` (Okun's law) and `theta1 >= 0`
+   (procyclical participation) pin down the cycle's sign so all chains
+   converge to the same mode.
+3. **Student-t cycle innovations** via the standard
+   scale-mixture-of-normals (`lambda[t] ~ inv_gamma(nu/2, nu/2)`)
+   absorb one-off shocks (COVID-2020 in particular) without distorting
+   the surrounding trend or cycle.
+
+The smoothed states (`states.csv`) are well-identified by the data;
+some parameter-level posteriors (cycle persistence and the post-1984
+innovation variances) remain weakly identified -- a classic feature of
+multivariate UC models -- so `parameters.csv` reports wider credible
+intervals on those.
 
 ## Data
 

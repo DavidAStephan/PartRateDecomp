@@ -58,9 +58,10 @@ build_state_table <- function(fit_obj) {
 }
 
 build_parameter_table <- function(fit_obj) {
-  pars <- c("delta", "phi1", "phi2", "kappa1", "kappa2", "theta1", "theta2",
+  pars <- c("delta", "phi1", "phi2", "pacf1", "pacf2",
+            "kappa1", "kappa2", "theta1", "theta2",
             paste0("sigma[", rep(1:2, each = 4), ",", rep(1:4, 2), "]"),
-            "rho[1]", "rho[2]")
+            "rho[1]", "rho[2]", "nu")
   s <- fit_obj$fit$summary(variables = pars,
                            mean = mean, sd = sd,
                            q2.5 = ~ quantile(.x, 0.025),
