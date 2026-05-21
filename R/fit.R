@@ -71,8 +71,8 @@ fit_model <- function(stan_inputs,
   # nu->2 boundary. Chains then converge on a single mode.
   init_list <- replicate(chains, list(
     delta = 0.3,
-    pacf1 = 0.85,
-    pacf2 = -0.3,
+    pacf1 = 0.55,
+    pacf2 = -0.2,
     kappa1 = -0.5,
     kappa2 = -0.2,
     theta1 = 0.4,
