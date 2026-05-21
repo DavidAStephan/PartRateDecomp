@@ -1,0 +1,26 @@
+Package: PartRateDecomp
+Title: Participation Rate Decomposition (Stan)
+Version: 1.0.0
+Authors@R: person("David", "Stephan", email = "david.stephan@gmail.com", role = c("aut", "cre"))
+Description: Bayesian unobserved-components state-space model that decomposes
+    the Australian labour-force participation rate into trend and cyclical
+    components, jointly with log real GDP per capita and the unemployment
+    rate. Replicates Evans, Moore & Rees (2018, RBA Bulletin) in Stan.
+License: MIT
+Encoding: UTF-8
+Depends:
+    R (>= 4.2.0)
+Imports:
+    cmdstanr (>= 0.7.0),
+    posterior,
+    dplyr,
+    tidyr,
+    tibble,
+    readr,
+    readxl,
+    lubridate,
+    httr,
+    ggplot2,
+    patchwork
+Suggests:
+    testthat (>= 3.0.0)

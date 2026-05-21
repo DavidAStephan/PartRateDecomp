@@ -1,0 +1,19 @@
+# Downloaded ABS workbooks -- always re-fetched at run time.
+data/raw/
+
+# Stan build artefacts
+stan/*.hpp
+stan/*.o
+stan/*.d
+stan/lf_uc
+
+# R session artefacts
+.Rhistory
+.Rproj.user/
+.Rapp.history
+.Rdata
+*.Rcheck/
+
+# OS noise
+.DS_Store
+Thumbs.db
